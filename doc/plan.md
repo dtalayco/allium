@@ -12,6 +12,47 @@ answer specific design questions.
 Open decisions are tracked in [proposals.md](proposals.md). Each phase
 below lists the proposals it has to resolve before it can finish.
 
+## Status and Next Steps
+
+*Last updated: 2026-11-18. Update this section before switching
+machines or ending a work session, so the working context travels with
+the repo.*
+
+**Current phase:** Phase 1 (Concepts and Terminology), mostly done.
+Phase 2 (Requirements) is next. Work is on the `towards_requirements1`
+branch.
+
+**Done recently**
+- `background.md`:
+  - Rewritten around the Thesis: correct behavior depends on
+    consistency of state across devices.
+  - Two rounds of review applied.
+  - The partial-map paragraph restored.
+- `architecture.md`: started, with the Driver/Module split, example
+  modules and "The naming of cats".
+- `proposals.md`: P-21–P-25 added. P-02, P-13 and P-20 revised.
+- `plan.md`: updated for the above.
+
+**In progress / open threads**
+- Whether "Intension" in `design.md` is intentional (P-20).
+- Whether the circuit switching module in `architecture.md` is a v1
+  goal or a validation case for the Module design (P-02).
+- Splitting `design.md` and `architecture.md`. Proposal:
+  `architecture.md` is the overview, and `design.md` becomes an index
+  of subsystem designs.
+
+**Next actions**
+1. Formalize the partial-map composition model (Phase 1).
+2. Write the prior-art section (Phase 1).
+3. Make the first decisions: P-01, P-03, P-04, P-05, P-21, then P-22
+   and P-23.
+4. Draft personas and use cases for `requirements.md` (Phase 2).
+5. Phase 0 housekeeping: README, CONTRIBUTING, `doc/adr/` template.
+
+**Resuming with an AI assistant:** start with "Read doc/plan.md
+(especially this section), doc/proposals.md and doc/background.md;
+we're continuing the design work."
+
 ## Where the Docs Stand Today
 
 ### What exists
