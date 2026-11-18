@@ -18,7 +18,7 @@ and the entry here is reduced to a link (see [plan.md](plan.md)).
 | ID | Topic | Blocks | Priority | Status |
 |---|---|---|---|---|
 | P-01 | Initial target and scope | Requirements, everything | High | Open |
-| P-02 | Circuit switching / optical in scope? | Glossary, model | Low | Open |
+| P-02 | Circuit switching / optical in scope? | Glossary, model, architecture | Medium | Open |
 | P-03 | Host / edge participation | Model, drivers | High | Open |
 | P-04 | How intent is expressed | Model, API, UI | High | Open |
 | P-05 | Scope and rule hierarchy semantics | Model, compiler, authz | High | Open |
@@ -29,7 +29,7 @@ and the entry here is reduced to a link (see [plan.md](plan.md)).
 | P-10 | State store / platform (incl. Kubernetes) | Architecture | Medium | Open |
 | P-11 | Southbound protocol(s) | Drivers | Medium | Open |
 | P-12 | Driver packaging and isolation | Drivers, ecosystem | Medium | Open |
-| P-13 | Device identity and admission | Admission design | Medium | Open |
+| P-13 | Device identity, naming and admission | Admission design, UI | Medium | Open |
 | P-14 | Config deployment semantics | Compiler, drivers | Medium | Open |
 | P-15 | Telemetry and SLO measurement | Transparency goal | Medium | Open |
 | P-16 | Northbound API style | API, CLI, UI | Medium | Open |
@@ -37,6 +37,11 @@ and the entry here is reduced to a link (see [plan.md](plan.md)).
 | P-18 | Authorization and delegation model | Security, admin | Medium | Open |
 | P-19 | Governance and contribution model | Community | Low | Open |
 | P-20 | Glossary conventions | Docs | Low | Leaning (applied) |
+| P-21 | Allium's role relative to routing protocols | Architecture, drivers | High | Open |
+| P-22 | Capability schema | Model, drivers | High | Open |
+| P-23 | Driver / Module integration | Architecture | High | Open |
+| P-24 | Management network and bootstrap | Admission, deployment | Medium | Open |
+| P-25 | Path selection as part of Treatment | Model, compiler | Medium | Open |
 
 ---
 
@@ -81,7 +86,9 @@ back-end fabric?
 
 **Context.** background.md says circuit switching "should be addressed
 as well". Optical circuit switches are increasingly used in AI
-fabrics.
+fabrics. architecture.md lists a circuit switching module, driven by
+hosts or other schedule-generating devices that control the circuit
+lifecycle. That suggests more than a model-only treatment.
 
 **Alternatives.**
 
@@ -90,8 +97,13 @@ fabrics.
    topology can represent reconfigurable circuits.
 3. **First-class support.**
 
-**Leaning.** Option 2. Keep the topology model general enough that a
-link can be dynamic, and defer all implementation.
+**Leaning.** Option 2 for v1. Keep the topology model general enough
+that a Link can be dynamic, and design the Module interface (P-23) so
+a circuit switching module can be added without changes to the core.
+Revisit if a circuit switching use case is in the v1 set (P-01).
+
+**Questions.** Is the architecture.md circuit switching module a v1
+goal or a validation case for the Module design?
 
 ### P-03: Host / edge participation
 
@@ -276,6 +288,66 @@ Topology".
 intended, discovered and operational. A "propose intent from
 discovery" workflow handles brownfield onboarding.
 
+### P-22: Capability schema
+
+**Context.** background.md says the schema that defines Capabilities
+is "critical and likely to determine the success and effectiveness of
+Allium in the real world". It also says Devices are strongly typed,
+with no strict type hierarchy, and that Interfaces have a small fixed
+set of attributes plus type-specific ones.
+
+**Alternatives.**
+
+1. **Fixed, enumerated capability list** (feature flags).
+   - Pros: simple to implement and check.
+   - Cons: can't express parameters or limits (e.g. "8 queues, 2
+     lossless").
+2. **Typed capability records with parameters**, versioned, from a
+   shared registry (e.g. `treatment.queue{count: 8, lossless_max: 2}`).
+   - Pros: expressive enough for compilation decisions.
+   - Cons: registry governance becomes a project process.
+3. **Reuse an existing model** (e.g. OpenConfig YANG and its
+   deviations/features).
+   - Pros: existing vocabulary and tooling.
+   - Cons: describes configuration, not abstract capability. Tied to
+     specific protocols, against the stated goal.
+4. **Composable traits.** A Device type is a set of traits
+   (`forwards-l3`, `marks-dscp`, `lossless-class`, `streams-queue-stats`),
+   each with parameters. No type hierarchy.
+   - Pros: matches background.md's "strongly typed, no strict
+     hierarchy" and handles DPUs and similar devices well.
+   - Cons: needs rules for how traits combine and conflict.
+
+**Leaning.** Option 4, with option 2's parameters and versioning for
+each trait. Write a dedicated `model/capabilities.md` early, and check
+it against at least SONiC, a host NIC and a DPU.
+
+### P-25: Path selection as part of Treatment
+
+**Context.** background.md leaves path selection "for further study".
+Path choice is primarily about correct delivery, but it affects
+latency and congestion. In AI fabrics, ECMP hash collisions and
+adaptive routing are major factors in job performance.
+
+**Alternatives.**
+
+1. **Out of Treatment.** Paths are determined by routing; Treatment
+   covers only per-hop actions.
+2. **Constraints only.** Rules can constrain paths (e.g. exclude
+   links, require disjointness) but not choose them.
+3. **Load-balancing policy as Treatment.** Rules select the
+   load-balancing method (ECMP hash fields, flowlet, packet spraying,
+   adaptive routing) per Flow Class.
+4. **Explicit path assignment** (traffic engineering) per Flow Class.
+
+**Tradeoffs.** Options 1–2 keep forwarding correctness separate and
+simple. Options 3–4 reach the latency targets AI fabrics care about,
+but require tighter coupling with routing (see P-21).
+
+**Leaning.** Option 1 for correctness and option 3 as Treatment: the
+path set comes from routing, and the way traffic is spread over it is
+a Treatment attribute. Defer option 4.
+
 ---
 
 ## Architecture
@@ -386,6 +458,19 @@ for the same driver contract once it is defined.
 1. Serial number or chassis MAC, from inventory.
 2. Certificate-based identity, ideally IEEE 802.1AR DevID or TPM-backed.
 3. Operator-assigned name bound to one of the above.
+
+**Naming** (architecture.md, "The naming of cats"). The UI and internal
+references need stable, consistent names. A suggested layering:
+
+- an immutable internal ID (UUID), used for all internal references;
+- a hardware identity (serial/MAC, later a certificate);
+- an operator-assigned name, unique within its Scope;
+- a hierarchical path following the Scope tree (P-05), e.g.
+  `fabric1/pod2/leaf3`.
+
+Moves, re-roles and replacements change only the operator name and the
+path, never the internal ID. Replacing failed hardware rebinds the
+hardware identity to the existing Device record.
 
 **Alternatives for admission policy.**
 
@@ -508,6 +593,90 @@ data visibility, or only an administrative convenience?
 hard multi-tenancy (data isolation) to after v1, but keep a tenant
 field in the model from the start.
 
+### P-21: Allium's role relative to distributed routing protocols
+
+**Context.** background.md frames forwarding as a state distribution
+problem, with BGP as the canonical distributed mechanism. It says
+Allium must expose whichever distribution protocols the substrate
+supports. Whether Allium configures those protocols, replaces them,
+or mixes the two is one of the main architectural decisions.
+
+**Alternatives.**
+
+1. **Configure and observe.** Devices run their own routing protocols
+   (e.g. BGP); Allium configures them and verifies the resulting tables
+   are consistent with Intent.
+   - Pros: forwarding keeps working while the controller is down. A
+     well-understood operating model, and the native approach on SONiC.
+   - Cons: Allium controls forwarding only indirectly.
+2. **Program tables directly** (classic SDN). Allium computes and
+   installs forwarding state.
+   - Pros: full control, including flow placement.
+   - Cons: the controller is in the forwarding failure path. Scaling
+     and convergence become Allium's problem.
+3. **Hybrid.** Routing protocols provide base reachability; Allium
+   overlays policy (Treatment, marks, load-balancing, and optionally
+   path constraints).
+4. **Per-network choice.** Each Network (or Virtual Network) declares
+   its distribution mechanism, and Modules implement each one.
+
+**Leaning.** Option 3 as the default, framed through option 4 so other
+mechanisms can be added as Modules. In every case Allium *verifies*
+consistency, which follows directly from the Thesis.
+
+### P-23: Driver / Module integration
+
+**Context.** architecture.md splits Allium into Drivers (connecting to
+devices) and Modules (instantiating network abstractions), and lists
+"glue connecting drivers to modules" as an open consideration.
+
+**Alternatives.**
+
+1. **Direct calls.** Modules call Driver APIs.
+   - Pros: simple.
+   - Cons: every Module must know about device types. Hard to
+     reconcile, retry or audit.
+2. **Shared model / state store.** Modules write Intended State to the
+   model; Drivers report Discovered and Operational State to it; a
+   reconciliation layer turns the difference into Driver operations.
+   - Pros: Modules are device-independent. Matches the
+     Intended/Discovered/Operational split and the Thesis.
+   - Cons: more indirection; requires a well-designed model.
+3. **Message bus / events.** Modules and Drivers publish and subscribe.
+   - Pros: loose coupling, scales out.
+   - Cons: harder to reason about consistency and ordering.
+
+**Leaning.** Option 2, with watch/event streams on the model (as in
+P-10/P-16) so Modules can react to changes without a separate bus.
+Capability data (P-22) is part of the model, so Modules can check
+feasibility before writing Intent.
+
+### P-24: Management network and bootstrap
+
+**Context.** background.md notes that a switch's POPs are usually on a
+management Network, which is "simply another Network instance", and
+defers how Allium uses and bootstraps that network to a separate
+document.
+
+**Alternatives.**
+
+1. **Out-of-band management network, outside Allium.** Allium assumes
+   it exists and reaches Devices over it.
+   - Pros: simplest, and robust to data-plane mistakes.
+   - Cons: Allium can't see or manage it.
+2. **Out-of-band network modeled by Allium.** Modeled and monitored,
+   but changed carefully (or not at all) by Allium.
+3. **In-band management.** Allium reaches Devices over the network it
+   controls.
+   - Pros: no separate network.
+   - Cons: a bad change can cut Allium off from the devices that need
+     to be fixed. Needs a protected management Flow Class and staged
+     rollouts (P-14).
+
+**Leaning.** Option 1 for v1, moving toward option 2. Bootstrap (ZTP,
+initial credentials, first contact) belongs with P-13 in
+`design/management-network.md`.
+
 ---
 
 ## Project
@@ -537,8 +706,10 @@ SONiC is under the Linux Foundation.
 - Spelling and capitalization conventions for defined terms.
 
 **Leaning.** Capitalize defined terms when they are used in their
-defined sense. Rename the second "Device" to "Modeled Device".
+defined sense.
 
-**Update.** `background.md` now follows this leaning. It uses
-"Modeled Device", capitalizes defined terms and keeps routers under
-"Switch". "Intension" in design.md is still open.
+**Update.** `background.md` now capitalizes defined terms. "Device"
+means a device Allium has an operational model for, and lowercase
+"device" means any device. A Device that can only be inspected is
+"RO". Switches, hosts and appliances are intentionally loose classes
+rather than defined terms. "Intension" in design.md is still open.

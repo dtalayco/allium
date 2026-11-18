@@ -19,12 +19,19 @@ below lists the proposals it has to resolve before it can finish.
 | Document | State | Strongest content |
 |---|---|---|
 | `README.md` | Placeholder | — |
-| `doc/background.md` | Partial glossary plus one essay section | The "partial map" view of packets → treatment across devices |
+| `doc/background.md` | Thesis plus a concept-driven glossary | Thesis: correct behavior = consistency of state across devices; the "partial map" view of packets → treatment |
 | `doc/requirements.md` | Outline with some prose | Edge/host-inclusive abstraction for AI deployments; hierarchical rules; performance transparency |
+| `doc/architecture.md` | Early outline | Drivers vs. Modules split; example modules; naming of device instances |
 | `doc/design.md` | Headings only | Section list gives a reasonable design outline |
 
 ### Core ideas already present (to preserve and develop)
 
+0. **Consistency of distributed state (the Thesis).** Each device acts
+   only on local information, but correct network behavior depends on
+   the state being consistent across devices. That covers forwarding,
+   mapping packets to flows, interpreting marks, and what a treatment
+   means on each device. Allium's job is to establish and verify that
+   consistency. The ideas below follow from this one.
 1. **Abstraction first, SONiC first.** SONiC is the first target, but
    the model must not depend on any one protocol or implementation.
    New devices are added through a driver-like model.
@@ -50,20 +57,19 @@ below lists the proposals it has to resolve before it can finish.
 
 ### Gaps and issues found in review
 
-- **background.md**
-  - "Device" is defined twice, with different meanings. The first is
-    any switch, host or appliance. The second is something Allium has
-    an operational model for. Rename one of them, for example
-    "Device" and "Modeled Device".
-  - Several entries are empty placeholders: Dashboard, L2, L3, BGP.
-  - Missing terms: interface (physical, sub-interface, LAG), link,
-    port, scope, rule, intent, driver, controller instance, tenant,
-    virtual network, queue/traffic class, telemetry, SLO.
-  - Typos: "iterfaces"; "although this circuit switching systems".
-  - The definition of Flow fixes the destination set. That covers
-    multicast, but it should state how flows are identified, how long
-    they live, and how they are aggregated (flow classes as opposed to
-    individual flows).
+- **background.md:** the first-round issues have been addressed: the
+  duplicate "Device" definition, placeholders, missing terms and
+  typos. "Device" now means a device Allium has a model for, and a
+  device that can only be inspected is an "RO" Device. Still open:
+  - Path selection as part of Treatment ("left for further study";
+    see P-25).
+  - Management network and bootstrap (deferred to a separate document;
+    see P-24).
+- **architecture.md**
+  - The key open item is how Drivers and Modules connect (see P-23).
+  - The circuit switching module implies more circuit-switching scope
+    than P-02 currently leans toward.
+  - "The naming of cats" needs an identifier scheme (see P-13).
 - **requirements.md**
   - No personas or use cases. It does not say who operates Allium or
     what deployment it targets: a single AI cluster, a multi-tenant
@@ -80,6 +86,9 @@ below lists the proposals it has to resolve before it can finish.
   - The requirements are not numbered, so later documents cannot trace
     back to them.
 - **design.md**
+  - Overlaps with architecture.md. Proposed split: architecture.md
+    covers the component structure; design.md becomes an index of
+    the subsystem designs under `design/`.
   - Headings only. "Expressing Intension" may be a typo for
     "Intention", or it may deliberately use the logic term
     *intension* (defining a set by its properties rather than by
@@ -91,7 +100,7 @@ below lists the proposals it has to resolve before it can finish.
 
 ## Proposed Document Set
 
-The existing three documents are too few to hold the design. The
+The existing documents are too few to hold the design. The
 proposed set is below. Each document should be small enough to review
 in a single sitting.
 
@@ -109,10 +118,14 @@ doc/
     flows-and-treatment.md Flow identity, treatment, SLOs, composition
     scope-and-rules.md     Scope semantics, rule hierarchy, conflicts
     lifecycles.md          Device, network, rule lifecycles (state machines)
-  design.md                Architecture overview (components, data flow)
+    capabilities.md        Capability schema (what Drivers declare)
+  architecture.md          Architecture overview (Drivers, Modules, data flow)
+  design.md                Index of subsystem designs
   design/
     controller.md          Distribution, HA, state store
     southbound.md          Driver model, device interface, SONiC driver
+    management-network.md  Allium's own management network, bootstrap
+    naming.md              Device/instance identifiers and naming
     northbound.md          API, CLI, UI contract
     discovery-admission.md Identification, discovery, admission
     reconciliation.md      Intended vs. discovered vs. operational state
@@ -157,8 +170,10 @@ Goal: a shared vocabulary that every later document can rely on.
       `background.md` (see the review findings above).
 - [x] Add the missing terms. Distinguish *intended*, *discovered* and
       *operational* state.
-- [ ] Turn "Packets and Flows" into a short, semi-formal statement of
-      the partial-map composition model:
+- [x] Add a Thesis section to `background.md`.
+- [ ] Turn the partial-map paragraph at the end of "Flows and
+      Treatment" in `background.md` into a short, semi-formal statement
+      of the composition model:
       - device treatment function: `T_d : (pkt, meta, state_d) → (treatment, pkt', egress)`
       - path composition and the conditions under which it satisfies a
         flow requirement
@@ -224,22 +239,33 @@ project, and the API, UI and driver contract all follow from it.
       draining → retired), virtual networks and rules.
 - [ ] A worked example that runs one use case through the whole model:
       intent → rules → per-device treatment → measurement.
-- [ ] Define the **capability model**: how a driver declares which
-      abstractions and treatments a device supports, and how Allium
-      handles partial support.
+- [ ] `model/capabilities.md`: the **Capability schema**, i.e. how a
+      Driver declares which abstractions and treatments a Device
+      supports, and how Allium handles partial support. background.md
+      calls this schema critical to Allium's success, so give it its
+      own document and review.
 
 Decisions: P-04 (intent expression), P-05 (scope and rule semantics),
 P-06 (flow identification), P-07 (treatment specification), P-08
-(reconciliation authority).
+(reconciliation authority), P-22 (Capability schema), P-25 (path
+selection as Treatment).
 
 ### Phase 4 — Architecture
 
 Goal: the main components and how they interact, written down before
 any of them is designed in detail.
 
-- [ ] Rewrite `design.md` as the architecture overview: component
-      diagram, data flow from intent to device config, and data flow
-      from device telemetry back to SLO status.
+- [ ] Develop `architecture.md` into the architecture overview:
+      - the Driver/Module split and how they connect (P-23);
+      - a component diagram;
+      - data flow from intent to device config, and from device
+        telemetry back to SLO status;
+      - Allium's role relative to distributed routing protocols
+        (P-21).
+- [ ] Management network and bootstrap
+      (`design/management-network.md`, P-24).
+- [ ] Device naming and identifiers, from "The naming of cats"
+      (`design/naming.md`, P-13).
 - [ ] Controller topology and resilience (`design/controller.md`).
 - [ ] Southbound driver architecture and the definition of an
       "Allium Compliant Management Interface" (`design/southbound.md`).
@@ -250,7 +276,9 @@ any of them is designed in detail.
 Decisions: P-09 (controller distribution), P-10 (state store /
 platform), P-11 (southbound protocol), P-12 (driver packaging), P-14
 (config deployment semantics), P-16 (northbound API), P-17
-(implementation language).
+(implementation language), P-21 (role relative to routing protocols),
+P-23 (Driver/Module integration), P-24 (management network and
+bootstrap).
 
 ### Phase 5 — Subsystem Designs
 
@@ -324,10 +352,13 @@ Start only after the Phase 4 gate. Suggested MVP slice:
 
 1. Review this plan and `proposals.md`, and reorder or cut as needed.
 2. Decide the high-leverage proposals first: **P-01** (scope), **P-03**
-   (edge participation), **P-04** (intent expression) and **P-05**
-   (scope semantics). Most other work depends on them.
-3. Do Phase 0 and the Phase 1 cleanup of `background.md`. These are
-   cheap and unblock everything else.
+   (edge participation), **P-04** (intent expression), **P-05**
+   (scope semantics) and **P-21** (role relative to routing
+   protocols). Most other work depends on them. **P-22** (Capability
+   schema) and **P-23** (Driver/Module integration) come next.
+3. Do Phase 0 and finish Phase 1: formalize the partial-map model and
+   write the prior-art section. Both are cheap and unblock everything
+   else.
 4. Draft personas and use cases (Phase 2). They are the best tool for
    settling the scope proposals.
 5. Start the SONiC southbound spike early. It is the main external
