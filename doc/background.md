@@ -8,6 +8,19 @@ to Allium.
 Defined terms are capitalized when used in their defined sense (e.g.
 "a Managed Device" vs. "a device in general").
 
+## Thesis
+
+Allium is driven by the following observation. Although each device
+processes packets with only local information, correct network
+behavior requires consistency of state across devices. This includes
+
+* Packet forwarding decisions (output port selection)
+* Mapping packets to flows (including, for example, virtual network association)
+* Interpreting in-stream packet marking (ECN or DCSP for example)
+
+It is the job of the Allium controller to establish and verify this
+consistency.
+
 ## Concepts
 
 In general, Allium assumes packet switched networks of hosts, although
@@ -17,19 +30,23 @@ addressed as well. See proposals.md, P-02.
 We assume a basic familiarity with networking and so do not attempt to
 define things in order or avoid all circularities.
 
-A packet is a container for data. It is typically composed of headers
+A **Packet** is a container for data. It is typically composed of headers
 and data, but one device's header is another's data.
 
-When transfered between devices, packets need Framing to be
+When transferred between devices, packets need **Framing** to be
 delineated.
 
 ### Devices and Interfaces
 
-Data is transfered between devices through **Interfaces**. We use the
+Data is transferred between devices through **Interfaces**. We use the
 term generically along with **Port**, but note that it is critical to
-recognize that physical interfaces can be chopped up (virtualized into
-sub interfaces by VLANs for example) or aggregated (for example
-forming 802.3ad link aggregates).
+recognize that physical interfaces can be chopped up or virtualized
+into sub-interfaces, by VLANs for example, or aggregated, for example
+forming 802.1X (formerly 802.3ad) link aggregates. In particular, an
+Interface has a very minimal set of fixed attributes (e.g., admin
+state, oper state, packet and byte counters) and a variable number of
+type-specific attributes (e.g., a link aggregate has a list of
+physical ports belonging to the aggregate).
 
 We identify three rough classes of devices: switches, hosts and 
 appliances. There is gray area here, but roughly:
@@ -40,8 +57,17 @@ multiple interfaces.
 * Appliances are switches with specialized processes that may manipulate
 packets.
 
-In any case, all devices have one or more physical interfaces which 
-are connected to other devices and through which packets are exchanged.
+All devices have one or more physical interfaces which are connected
+to other devices and through which packets are exchanged.
+
+These classes are intentionally vague. For example, is a DPU on the
+motherboard a host or a switch -- or even an appliance? At its core,
+all Allium devices are characterized by their interfaces and what
+packet processing capabilities they have on and between those
+interfaces. We will strongly type instances of devices, but not impose
+a strict hierarchical schema on those types. The network architect or
+designer deploying with Allium should be able to define these 
+relationships to best suit their purposes.
 
 Allium is concerned with the devices it can inspect and control, so
 we define:
@@ -53,7 +79,7 @@ inspect to get state and metrics.
 well as inspect for state and metrics).
 
 If needed, we'll refer to a Device which only supports inspection
-(not control or configuration) as **Unmanaged** or **RO**
+(not control or configuration) or **RO** (readonly).
 
 To emphasize the fact that Allium is built around a driver model for
 device support, a **Driver** is the Allium component that maps between
@@ -68,8 +94,8 @@ We note up front that the schema that defines Capabilities is critical
 and likely to determine the success and effectiveness of Allium in the
 real world.
 
-**Links** connect two interfaces, usually on different devices, with
-bidirectional packet flow.
+**Links** connect two interfaces, usually on different devices, normally
+with bidirectional packet flow.
 
 ### Networks
 
@@ -78,7 +104,7 @@ them. There are some templates, like spine-leaf, mesh and ring, but
 Allium generally makes no assumption about the roles of positions in
 these templates.
 
-A **Network** is physical or logical Topology. Logical networks
+A **Network** is a physical or logical Topology. Logical networks
 require some protocol for defining the virtual connectivity
 (e.g. VLANs, a routing instance, an encapsulation specification).
 
@@ -102,11 +128,11 @@ packet modifications implied) across a network of switches.
 
 ### Addressing, L2 and L3
 
-The differences between L2 and L3 as addressing layers is only clear
+The differences between L2 and L3 as addressing layers are only clear
 once specific protocols are given as context. But what is more
 important, and often not addressed by layer-defining standards, is
 the mechanism by which address mappings are distributed to switches.
-This was, in fact, the key operational difference between the layers.
+This is, in fact, the key operational difference between the layers.
 The imposition of structure on L3 addresses ("network" and "host"
 parts) added more options and complexity for forwarding logic, for
 example, adding locational associations to addresses.
@@ -117,27 +143,31 @@ the source address; L3 address mappings were usually distributed
 between instances of protocol processes running on each switch and,
 logically, communicating "out of band".
 
-Since Allium is a controller, it is very concerned with these
-mechanisms.
+Even this distinction has become blurred; for example EVPN uses BGP to
+distribute L2 MAC addresses.
 
-Finally, note that traditionally we refer to a particular
-device's L2 or L3 forwarding tables (VRF, etc). But it is the
-consistency of these tables between devices that results in proper
-forwarding of traffic across a network.
+Since Allium is a controller, it is concerned with providing flexible
+and extensible mechanisms for exposing the protocols that may be
+exercised, which depends on the physical substrate and its
+configuration, and then providing an operational model for the
+resulting system.
 
 ### Flows and Treatment
 
 **POP** (Point of Presence): An addressable entity on a network. This
-is usually a process running on a Host, although a Switch may also
+is usually a process running on a Host, although a switch may also
 have POPs. Note that the "presence" implies a particular Network on
 which to be present; hence the POPs on a switch are usually present on
 a "management" network, although that is simply another Network
-instance from Allium's point of view. 
+instance from Allium's point of view. This does beg the question of
+what network Allium will use and how it will bootstrap, a subject we
+will defer to a separate document.
 
 It is easy and sometimes useful to identify a POP with a MAC or IP
 address, for example. But here we want to allow for finer
-granularity. The tuple including the L2 address, L3 address and L4
-port number is often the best way to think about a POP in our model.
+granularity. One common example woudl be the tuple including the L2
+address, L3 address and L4 port number is often the best way to think
+about a POP in our model. For RDMA, a queue identifier might be used.
 
 **Flow**: An ordered sequence of packets generated by one POP and destined
 for one or more other POPs. The set of destinations is fixed for a
@@ -155,19 +185,19 @@ across a network.
 include latency, jitter and drop rate.
 
 **Flow Class**: Often it's easier to identify all the Flows with the
-same Flow Requirements together. These form a Flow Class, but that may
-or may not be useful in our schema. TBD.
+same Flow Requirements together. These form a Flow Class. For devices,
+this may give data compression.
 
-It should already be clear already that there is a tradeoff between
-doing independent processing of a packet at each Switch versus allowing
+It should already be clear that there is a tradeoff between
+doing independent processing of a packet at each switch versus allowing
 some result of the processing of the packet to be conveyed between switches
 along with the packet. There are common ways to **Mark** packets via
 protocols that anticipate this need and define fields in their headers
 to carry this information. Examples include DSCP and PCP.
 
-This approach comes both with efficiency gains (one processing step is
-done early and later ones may be done more easily by only inspecting
-the Mark) but also has security implications: How do we establish the
+This approach comes with efficiency gains (one processing step is done
+early and later ones may be done more easily by only inspecting the
+Mark) and has security implications: How do we establish the
 boundaries of trust across which these values are respected?  Finally,
 the approach does not alleviate the need to ensure consistency in
 state across devices as the interpretation of a Marking on a packet by
@@ -180,21 +210,22 @@ drops".
 
 **Treatment**: What actions are taken on a packet by a Device. This
 includes being dropped, prioritized relative to other packets, and any
-modifications to the packet.
+modifications to the packet. 
 
-Devices operating on packets do not have global knowledge. They have
-only the packet itself, possibly some metadata (e.g. ingress port) and
-the state of the Device's forwarding logic (e.g. tables) to associate
-a packet to a Flow. Achieving consistent mapping to a Flow, then to a
-Treatment is another instance of the state distribution problem
-familiar from forwarding table distribution.
+The choice of forwarding path is a bit tricky; on the one hand it is
+driven more by correctness for packet delivery and should be an
+implementation detail for ensuring the packet arrive at the correct
+destination. But that choice may have impacts on latency or other
+target flow characteristics. We leave this for further study.
 
-What we wish to achieve in the network is Treatment of packets during
-their transit across multiple Devices resulting in the satisfaction of
-the requirements for the packet's Flow. Thus, we view each Device as
-applying a partial map from packet to the Treatment of the packet and
-ask if the patching of these partial functions (across multiple
-Devices) produces the desired Treatment of Flows across the network.
+As we've already noted, devices operating on packets do not have
+global knowledge.  Achieving consistent mapping a packet to a Flow and
+then consistent treatment of that Flow is a state distribution
+problem.
+
+In addition, the question of Treatment is actually a bit more complicated
+as the individual switch decisions combined need to result in the desired
+network behavior.
 
 ### Intent and Administration
 
@@ -224,7 +255,7 @@ link status, counters and queue depths.
 
 ### Controller and Observability
 
-**Controller**: The Allium software that holds Intent, gathers State,
+**Controller**: The Allium software that holds Intent, gathers state,
 manages Devices and provides services for APIs and the User Interface.
 
 **Telemetry**: State and metrics collected from Devices (and possibly
